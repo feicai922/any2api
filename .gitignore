@@ -1,0 +1,27 @@
+# Local runtime configuration and credentials
+config.json
+.env
+.env.*
+*.local
+*.local.*
+AGENTS.local.md
+credentials/
+secrets/
+
+# Build and runtime artifacts
+bin/
+work/
+web/node_modules/
+web/dist/
+*.exe
+*.log
+*.pid
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# tunnel configuration and logs
+frp/

@@ -1,0 +1,43 @@
+{
+  "listen": "127.0.0.1:7860",
+  "default_project": "workbuddy",
+  "max_body_bytes": 67108864,
+  "upstream_timeout_seconds": 300,
+  "projects": [
+    {
+      "name": "workbuddy",
+      "upstream": "http://127.0.0.1:7863",
+      "api_key_env": "WORKBUDDY_API_KEY",
+      "native": ["chat"],
+      "health_path": "/healthz"
+    },
+    {
+      "name": "qoder",
+      "upstream": "http://127.0.0.1:8963",
+      "api_key_env": "QODER_API_KEY",
+      "native": ["chat", "responses", "anthropic"],
+      "health_path": "/v1/models"
+    },
+    {
+      "name": "opencode",
+      "upstream": "http://127.0.0.1:10010",
+      "api_key_env": "OPENCODE_API_KEY",
+      "native": ["chat", "responses", "anthropic"],
+      "health_path": "/health"
+    },
+    {
+      "name": "trae",
+      "upstream": "http://127.0.0.1:8000",
+      "api_key_env": "TRAE_API_KEY",
+      "native": ["chat", "responses", "anthropic"],
+      "health_path": "/healthz"
+    },
+    {
+      "name": "gcli",
+      "upstream": "http://127.0.0.1:7861",
+      "api_key_env": "GCLI_API_KEY",
+      "native": ["chat", "anthropic"],
+      "health_path": "/v1/models"
+    }
+  ]
+}
