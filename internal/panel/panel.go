@@ -543,12 +543,11 @@ func (h *Handler) stop(name string) error {
 }
 
 func defaultSpecs(root string) []ProjectSpec {
-	workspace := filepath.Dir(root)
-	workbuddyDir := projectDirectory("WORKBUDDY_DIR", filepath.Join(workspace, "workbuddy2api-panel"))
-	qoderDir := projectDirectory("QODER_DIR", filepath.Join(workspace, "qoder2api"))
-	opencodeDir := projectDirectory("OPENCODE_DIR", filepath.Join(workspace, "opencode2api"))
-	traeDir := projectDirectory("TRAE_DIR", filepath.Join(workspace, "trae2api"))
-	gcliDir := projectDirectory("GCLI_DIR", filepath.Join(workspace, "gcli2api"))
+	workbuddyDir := projectDirectory("WORKBUDDY_DIR", filepath.Join(root, "upstreams", "workbuddy"))
+	qoderDir := projectDirectory("QODER_DIR", filepath.Join(root, "upstreams", "qoder"))
+	opencodeDir := projectDirectory("OPENCODE_DIR", filepath.Join(root, "upstreams", "opencode"))
+	traeDir := projectDirectory("TRAE_DIR", filepath.Join(root, "upstreams", "trae"))
+	gcliDir := projectDirectory("GCLI_DIR", filepath.Join(root, "upstreams", "gcli"))
 	gcliPython := filepath.Join(gcliDir, ".venv", "Scripts", "python.exe")
 	if runtime.GOOS != "windows" {
 		gcliPython = filepath.Join(gcliDir, ".venv", "bin", "python")
@@ -617,8 +616,8 @@ func defaultSpecs(root string) []ProjectSpec {
 				"OPENCODE_PROXY_PORT=10010",
 				"BIND_HOST=127.0.0.1",
 				"OPENCODE_PATH="+opencodeCommand(),
+				"OPENCODE_WEB_PANEL_ENABLED=true",
 			),
-			ReadyProbe:  "/health",
 			ConsoleURL:  "/console/opencode/",
 			InstallHint: "在 opencode2api 目录执行 npm install，并安装 opencode CLI。",
 			LoginHint:   "通常可直接使用；控制台若要求鉴权，请填写项目代理 API Key，凭据仅保存在该页面本地。",

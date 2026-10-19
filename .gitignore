@@ -2,6 +2,7 @@
 config.json
 .env
 .env.*
+!upstreams/**/.env.example
 *.local
 *.local.*
 AGENTS.local.md
@@ -17,11 +18,28 @@ web/dist/
 *.log
 *.pid
 
+# Upstream runtime data and generated credentials
+upstreams/*/auths/
+upstreams/*/data/
+upstreams/*/creds/
+upstreams/*/.venv/
+upstreams/*/venv/
+upstreams/*/node_modules/
+upstreams/*/__pycache__/
+upstreams/*/logs/
+upstreams/*/output/
+upstreams/*/backups/
+upstreams/*/config.json
+upstreams/*/frpc.toml
+upstreams/*/frpc.toml.bak-*
+!upstreams/**/config.example.json
+!upstreams/**/.github/**/config.json
+
+# Tunnel configuration and logs
+frp/
+
 # OS/editor files
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-
-# tunnel configuration and logs
-frp/

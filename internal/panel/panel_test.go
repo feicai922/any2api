@@ -240,6 +240,43 @@ func TestIndexExposesManagementTokenOnlyLocally(t *testing.T) {
 	}
 }
 
+func TestDefaultProjectDirectoriesStayInsideRepository(t *testing.T) {
+	root := t.TempDir()
+	specs := defaultSpecs(root)
+	want := map[string]string{
+		"workbuddy": filepath.Join(root, "upstreams", "workbuddy"),
+		"qoder":     filepath.Join(root, "upstreams", "qoder"),
+		"opencode":  filepath.Join(root, "upstreams", "opencode"),
+		"trae":      filepath.Join(root, "upstreams", "trae"),
+		"gcli":      filepath.Join(root, "upstreams", "gcli"),
+	}
+	if len(specs) != len(want) {
+		t.Fatalf("spec count = %d, want %d", len(specs), len(want))
+	}
+	for _, spec := range specs {
+		expected, ok := want[spec.Name]
+		if !ok {
+			t.Fatalf("unexpected project %q", spec.Name)
+		}
+		if spec.Directory != expected {
+			t.Fatalf("%s directory = %q, want %q", spec.Name, spec.Directory, expected)
+		}
+	}
+}
+
+func TestOpenCodeStartsWithWebPanelEnabled(t *testing.T) {
+	specs := defaultSpecs(t.TempDir())
+	for _, spec := range specs {
+		if spec.Name != "opencode" {
+			continue
+		}
+		if !strings.Contains(strings.Join(spec.Env, "\n"), "OPENCODE_WEB_PANEL_ENABLED=true") {
+			t.Fatalf("OpenCode env does not enable the web panel: %v", spec.Env)
+		}
+		return
+	}
+	t.Fatal("OpenCode spec not found")
+}
 func TestTraeStartsInWebLoginMode(t *testing.T) {
 	specs := defaultSpecs(t.TempDir())
 	for _, spec := range specs {

@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$traeDir = if ($env:TRAE_DIR) { $env:TRAE_DIR } else { Join-Path (Split-Path -Parent $root) "trae2api" }
+$traeDir = if ($env:TRAE_DIR) { $env:TRAE_DIR } else { Join-Path $root "upstreams\trae" }
 $python = Join-Path $traeDir ".venv\Scripts\python.exe"
 $helper = Join-Path $traeDir "web_login.py"
 $logDir = Join-Path $root "work\panel-logs"

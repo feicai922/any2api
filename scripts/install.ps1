@@ -1,117 +1,168 @@
 [CmdletBinding()]
 param(
-    [switch]$CheckOnly
+    [switch]$CheckOnly,
+    [switch]$SkipWebBuild
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$workspace = Split-Path -Parent $root
-$workbuddy = if ($env:WORKBUDDY_DIR) { $env:WORKBUDDY_DIR } else { Join-Path $workspace "workbuddy2api-panel" }
-$qoder = Join-Path $workspace "qoder2api"
-$opencode = Join-Path $workspace "opencode2api"
-$trae = Join-Path $workspace "trae2api"
-$gcli = Join-Path $workspace "gcli2api"
+$upstreams = Join-Path $root "upstreams"
+
+$projects = [ordered]@{
+    workbuddy = Join-Path $upstreams "workbuddy"
+    qoder      = Join-Path $upstreams "qoder"
+    opencode   = Join-Path $upstreams "opencode"
+    trae       = Join-Path $upstreams "trae"
+    gcli       = Join-Path $upstreams "gcli"
+}
 
 $checks = [System.Collections.Generic.List[object]]::new()
 function Add-Check {
     param([string]$Name, [bool]$OK, [string]$Detail, [string]$Fix = "")
     $script:checks.Add([pscustomobject]@{ Name = $Name; OK = $OK; Detail = $Detail; Fix = $Fix })
 }
+
 function Test-Tool {
-    param([string]$Name)
+    param([string]$Name, [string]$VersionArg = "--version")
     $cmd = Get-Command $Name -ErrorAction SilentlyContinue
-    if ($cmd) { Add-Check $Name $true $cmd.Source; return $true }
-    Add-Check $Name $false "未找到" "安装 $Name 并加入 PATH"
-    return $false
+    if (-not $cmd) {
+        Add-Check $Name $false "not found" "install $Name and add it to PATH"
+        return $false
+    }
+    $version = (& $cmd.Source $VersionArg 2>&1 | Select-Object -First 1)
+    Add-Check $Name $true (($version -join " ").Trim())
+    return $true
 }
+
 function Test-PythonVenv {
     param([string]$Project, [string]$Dir)
     $python = Join-Path $Dir ".venv\Scripts\python.exe"
     if (-not (Test-Path -LiteralPath $python)) {
-        Add-Check "$Project/.venv" $false "虚拟环境不存在" "在 $Dir 创建 .venv 并安装 requirements.txt"
-        return
+        Add-Check "$Project/.venv" $false "missing" "run scripts\install.ps1"
+        return $false
     }
-    Add-Check "$Project/.venv" $true $python
     $result = & $python -m pip check 2>&1
     $ok = $LASTEXITCODE -eq 0
-    Add-Check "$Project/pip-check" $ok ($result -join " ") "在该虚拟环境执行 python -m pip install -r requirements.txt"
+    Add-Check "$Project/pip-check" $ok (($result -join " ").Trim()) "run scripts\install.ps1"
+    return $ok
 }
 
-Write-Host "== 依赖检查 ==" -ForegroundColor Cyan
-$goOK = Test-Tool "go"
-$nodeOK = Test-Tool "node"
-$npmOK = Test-Tool "npm"
-$pyOK = Test-Tool "python"
+function Invoke-Step {
+    param([string]$Name, [scriptblock]$Action)
+    Write-Host "==> $Name" -ForegroundColor Cyan
+    & $Action
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Name failed with exit code $LASTEXITCODE"
+    }
+}
 
-if ($goOK) { Add-Check "Go 版本" $true ((& go version) -join "") }
-if ($nodeOK) { Add-Check "Node 版本" $true ((& node --version) -join "") }
-if ($npmOK) { Add-Check "npm 版本" $true ((& npm --version) -join "") }
-if ($pyOK) { Add-Check "Python 版本" $true ((& python --version) -join "") }
+function Ensure-FileFromExample {
+    param([string]$Path)
+    if (Test-Path -LiteralPath $Path) {
+        return
+    }
+    $example = "$Path.example"
+    if (-not (Test-Path -LiteralPath $example)) {
+        throw "missing template: $example"
+    }
+    Copy-Item -LiteralPath $example -Destination $Path
+}
 
-$wbExe = Join-Path $workbuddy "wb2api.exe"
-$wbConfig = Join-Path $workbuddy "config.json"
-Add-Check "workbuddy/wb2api.exe" (Test-Path -LiteralPath $wbExe) $(if (Test-Path -LiteralPath $wbExe) { $wbExe } else { "未找到" }) "在该目录执行 .\start-panel.ps1 或准备 wb2api.exe"
-Add-Check "workbuddy/config.json" (Test-Path -LiteralPath $wbConfig) $(if (Test-Path -LiteralPath $wbConfig) { $wbConfig } else { "未找到" }) "首次运行 wb2api.exe 会生成配置；不要在终端打印配置内容"
-$qoderExe = Join-Path $qoder "bin\qoder2api.exe"
-Add-Check "qoder/bin/qoder2api.exe" (Test-Path -LiteralPath $qoderExe) $(if (Test-Path -LiteralPath $qoderExe) { $qoderExe } else { "未找到" }) "在 qoder2api 目录执行 go build -o bin\qoder2api.exe ."
+Write-Host "== any2api dependency check ==" -ForegroundColor Cyan
+$goOK = Test-Tool "go" "version"
+$nodeOK = Test-Tool "node" "--version"
+$npmOK = Test-Tool "npm" "--version"
+$pyOK = Test-Tool "python" "--version"
+$pwshOK = $PSVersionTable.PSVersion.Major -ge 7
+Add-Check "PowerShell 7" $pwshOK $PSVersionTable.PSVersion.ToString() "install PowerShell 7"
 
-$nodeModules = Join-Path $opencode "node_modules"
-Add-Check "opencode/node_modules" (Test-Path -LiteralPath $nodeModules) $(if (Test-Path -LiteralPath $nodeModules) { $nodeModules } else { "未找到" }) "在 opencode2api 目录执行 npm ci"
-$openCodeCLI = Join-Path $env:APPDATA "npm\opencode.cmd"
-Add-Check "OpenCode CLI" (Test-Path -LiteralPath $openCodeCLI) $(if (Test-Path -LiteralPath $openCodeCLI) { $openCodeCLI } else { "未找到" }) "执行 npm install -g @opencode-ai/cli"
+foreach ($entry in $projects.GetEnumerator()) {
+    Add-Check "upstream/$($entry.Key)" (Test-Path -LiteralPath $entry.Value) $entry.Value "run git submodule update --init --recursive (source is bundled in this repository)"
+}
 
-Test-PythonVenv "trae" $trae
-Test-PythonVenv "gcli" $gcli
-Add-Check "PowerShell 7" ($PSVersionTable.PSVersion.Major -ge 7) $PSVersionTable.PSVersion.ToString() "安装 PowerShell 7"
+$workbuddyExe = Join-Path $projects.workbuddy "wb2api.exe"
+$qoderExe = Join-Path $projects.qoder "bin\qoder2api.exe"
+$openCodeCLI = if ($env:APPDATA) { Join-Path $env:APPDATA "npm\opencode.cmd" } else { "opencode" }
+$checks.Add([pscustomobject]@{ Name = "workbuddy/wb2api.exe"; OK = (Test-Path -LiteralPath $workbuddyExe); Detail = $workbuddyExe; Fix = "run scripts\install.ps1" })
+$checks.Add([pscustomobject]@{ Name = "qoder/bin/qoder2api.exe"; OK = (Test-Path -LiteralPath $qoderExe); Detail = $qoderExe; Fix = "run scripts\install.ps1" })
+$checks.Add([pscustomobject]@{ Name = "OpenCode CLI"; OK = (Test-Path -LiteralPath $openCodeCLI); Detail = $openCodeCLI; Fix = "run scripts\install.ps1" })
+$checks.Add([pscustomobject]@{ Name = "opencode/node_modules"; OK = (Test-Path -LiteralPath (Join-Path $projects.opencode "node_modules")); Detail = (Join-Path $projects.opencode "node_modules"); Fix = "run scripts\install.ps1" })
+Test-PythonVenv "trae" $projects.trae | Out-Null
+Test-PythonVenv "gcli" $projects.gcli | Out-Null
+$webBuild = Join-Path $root "internal\panel\static\index.html"
+$checks.Add([pscustomobject]@{ Name = "web build"; OK = (Test-Path -LiteralPath $webBuild); Detail = $webBuild; Fix = "run scripts\install.ps1" })
+$checks.Add([pscustomobject]@{ Name = "gateway binary"; OK = (Test-Path -LiteralPath (Join-Path $root "bin\api-gateway.exe")); Detail = (Join-Path $root "bin\api-gateway.exe"); Fix = "run scripts\install.ps1" })
 
-$failed = @($checks | Where-Object { -not $_.OK })
 $checks | Format-Table -AutoSize | Out-String | Write-Host
-
+$failed = @($checks | Where-Object { -not $_.OK })
 if ($CheckOnly) {
     if ($failed.Count -gt 0) {
-        Write-Host "存在 $($failed.Count) 项未就绪。" -ForegroundColor Yellow
+        Write-Host "$($failed.Count) item(s) are not ready." -ForegroundColor Yellow
         exit 1
     }
-    Write-Host "全部依赖已就绪。" -ForegroundColor Green
+    Write-Host "All dependencies are ready." -ForegroundColor Green
     exit 0
 }
 
-if ($failed.Count -eq 0) {
-    Write-Host "全部依赖已就绪，无需安装。" -ForegroundColor Green
-    exit 0
+if (-not ($goOK -and $nodeOK -and $npmOK -and $pyOK -and $pwshOK)) {
+    throw "Required tools are missing. Install Go 1.22+, Node.js 20+, Python 3.12+, and PowerShell 7 first."
 }
 
-# 只修复能明确、幂等处理的依赖；项目配置和凭据永远不修改。
-$repairFailed = $false
-if (-not (Test-Path -LiteralPath $nodeModules)) {
-    Write-Host "安装 opencode2api npm 依赖..." -ForegroundColor Cyan
-    Push-Location $opencode
-    try { npm ci; if ($LASTEXITCODE -ne 0) { $repairFailed = $true } } finally { Pop-Location }
+New-Item -ItemType Directory -Force -Path (Join-Path $root "bin") | Out-Null
+Ensure-FileFromExample (Join-Path $root "config.json")
+
+# WorkBuddy: build the executable. The service generates a real config on first start.
+Push-Location $projects.workbuddy
+try {
+    Invoke-Step "build WorkBuddy" { go build -trimpath -ldflags="-s -w" -o wb2api.exe ./cmd/server }
+} finally {
+    Pop-Location
 }
-foreach ($entry in @(@{Name="trae";Dir=$trae}, @{Name="gcli";Dir=$gcli})) {
+
+# Qoder: build the bridge and console.
+Push-Location $projects.qoder
+try {
+    New-Item -ItemType Directory -Force -Path "bin" | Out-Null
+    Invoke-Step "build Qoder" { go build -trimpath -ldflags="-s -w" -o bin\qoder2api.exe . }
+} finally {
+    Pop-Location
+}
+
+# OpenCode: local npm dependencies plus the CLI the proxy invokes.
+Push-Location $projects.opencode
+try {
+    Invoke-Step "install OpenCode dependencies" { npm ci }
+} finally {
+    Pop-Location
+}
+Invoke-Step "install OpenCode CLI" { npm install -g opencode-ai@1.19.0 }
+
+# Python projects use isolated virtual environments.
+foreach ($entry in @(@{ Name = "Trae"; Dir = $projects.trae }, @{ Name = "GCLI"; Dir = $projects.gcli })) {
     $python = Join-Path $entry.Dir ".venv\Scripts\python.exe"
     if (-not (Test-Path -LiteralPath $python)) {
-        Write-Host "创建 $($entry.Name) 虚拟环境..." -ForegroundColor Cyan
-        python -m venv (Join-Path $entry.Dir ".venv")
-        if ($LASTEXITCODE -ne 0) { $repairFailed = $true; continue }
+        Invoke-Step "create $($entry.Name) virtual environment" { python -m venv (Join-Path $entry.Dir ".venv") }
     }
-    $req = Join-Path $entry.Dir "requirements.txt"
-    if (Test-Path -LiteralPath $req) {
-        Write-Host "安装 $($entry.Name) Python 依赖..." -ForegroundColor Cyan
-        & $python -m pip install -r $req
-        if ($LASTEXITCODE -ne 0) { $repairFailed = $true }
+    $requirements = Join-Path $entry.Dir "requirements.txt"
+    Invoke-Step "upgrade $($entry.Name) pip" { & $python -m pip install --upgrade pip }
+    Invoke-Step "install $($entry.Name) Python dependencies" { & $python -m pip install -r $requirements }
+}
+
+if (-not $SkipWebBuild) {
+    Push-Location (Join-Path $root "web")
+    try {
+        Invoke-Step "install panel dependencies" { npm ci }
+        Invoke-Step "build panel" { npm run build }
+    } finally {
+        Pop-Location
     }
 }
 
-if (-not (Test-Path -LiteralPath $openCodeCLI)) {
-    Write-Host "提示：OpenCode CLI 需要单独安装，脚本不会猜包名或修改全局 npm 配置。" -ForegroundColor Yellow
-}
-if (-not (Test-Path -LiteralPath $wbExe)) {
-    Write-Host "提示：WorkBuddy 可执行文件缺失；请按项目说明编译或放置 wb2api.exe。" -ForegroundColor Yellow
-}
-if (-not (Test-Path -LiteralPath $qoderExe)) {
-    Write-Host "提示：Qoder 可执行文件缺失；请在 qoder2api 目录执行 go build -o bin\qoder2api.exe ." -ForegroundColor Yellow
+Push-Location $root
+try {
+    Invoke-Step "build gateway" { go build -trimpath -ldflags="-s -w" -o bin\api-gateway.exe ./cmd/server }
+} finally {
+    Pop-Location
 }
 
-if ($repairFailed) { exit 1 }
-Write-Host "可自动修复的依赖已处理完毕；请重新运行 -CheckOnly 检查剩余项。" -ForegroundColor Green
+Write-Host "Install complete. Start with scripts\start.ps1; the administrator password is requested at runtime and is never stored by this script." -ForegroundColor Green
